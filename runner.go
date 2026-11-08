@@ -2002,19 +2002,10 @@ func (c *requiredLandmarkCursor) findLiteral(input []rune, startAt, endAt, limit
 	}
 	// Stop once the matched prefix starts at or past limit.
 	for c.pos < readEnd && c.pos-c.matched < limit {
-		r := input[c.pos]
-		for c.matched > 0 && r != literal[c.matched] {
-			c.matched = c.prefix[c.matched-1]
-		}
-		if r == literal[c.matched] {
-			c.matched++
-		}
-		c.pos++
-		if c.matched < len(literal) {
+		if !c.matchNext(input, limit, literal) {
 			continue
 		}
 		start := c.pos - len(literal)
-		c.matched = c.prefix[len(literal)-1]
 		if (!alt.RequireWhitespaceBefore || start > 0 && alt.LeadingWhitespaceSet.Contains(input[start-1])) &&
 			(!alt.RequireWhitespaceAfter || c.pos < endAt && alt.TrailingWhitespaceSet.Contains(input[c.pos])) {
 			c.core, c.found = requiredLandmarkMatch{CoreStart: start, End: c.pos}, true
@@ -2025,6 +2016,34 @@ func (c *requiredLandmarkCursor) findLiteral(input []rune, startAt, endAt, limit
 		// No start that is left fits.
 		c.pos = endAt
 	}
+}
+
+// matchNext reads runes up to the end of the next literal and reports whether
+// one ended there. With no prefix matched, only the literal's first rune can
+// start one, so it searches for that rune instead of reading each in turn.
+// limit never exceeds readEnd.
+func (c *requiredLandmarkCursor) matchNext(input []rune, limit int, literal []rune) bool {
+	if c.matched == 0 {
+		off := helpers.IndexOfAny1(input[c.pos:limit], literal[0])
+		if off < 0 {
+			c.pos = limit
+			return false
+		}
+		c.pos += off
+	}
+	r := input[c.pos]
+	for c.matched > 0 && r != literal[c.matched] {
+		c.matched = c.prefix[c.matched-1]
+	}
+	if r == literal[c.matched] {
+		c.matched++
+	}
+	c.pos++
+	if c.matched < len(literal) {
+		return false
+	}
+	c.matched = c.prefix[len(literal)-1]
+	return true
 }
 
 // findSet looks for the shortest core at each start. The VM can backtrack a
