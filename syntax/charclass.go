@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -782,6 +783,19 @@ func (c *CharSet) addCategory(categoryName string, negate, caseInsensitive bool)
 	c.addCategories(Category{Cat: categoryName, Negate: negate})
 }
 
+// foldableRunes lists, in order, the runes that take part in simple case
+// folding. SimpleFold returns a rune unchanged when it has no case, which is
+// most of Unicode, so only these can contribute equivalences.
+var foldableRunes = sync.OnceValue(func() []rune {
+	runes := make([]rune, 0, 3000)
+	for ch := rune(0); ch <= unicode.MaxRune; ch++ {
+		if unicode.SimpleFold(ch) != ch {
+			runes = append(runes, ch)
+		}
+	}
+	return runes
+})
+
 // Adds to the class any case-equivalence versions of characters already
 // in the class. Used for case-insensitivity.
 func (c *CharSet) addCaseEquivalences(options RegexOptions) {
@@ -790,12 +804,21 @@ func (c *CharSet) addCaseEquivalences(options RegexOptions) {
 		return
 	}
 	rangeCount := len(c.ranges)
+	foldable := foldableRunes()
 	for i := 0; i < rangeCount; i++ {
 		r := c.ranges[i]
 		// For a single range that's in the set, adds any additional ranges
 		// necessary to ensure that lowercase equivalents are also included.
-		for i := r.First; i <= r.Last; i++ {
-			equiv := tryFindCaseEquivalences(i, options)
+		//
+		// Only runes that fold are visited. A negated class covers most of
+		// Unicode, and walking it a rune at a time made building such a pattern
+		// cost far more than it should.
+		start := sort.Search(len(foldable), func(i int) bool { return foldable[i] >= r.First })
+		for _, ch := range foldable[start:] {
+			if ch > r.Last {
+				break
+			}
+			equiv := tryFindCaseEquivalences(ch, options)
 			for _, eq := range equiv {
 				c.ranges = append(c.ranges, SingleRange{First: eq, Last: eq})
 			}
