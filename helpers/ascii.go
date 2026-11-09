@@ -63,13 +63,22 @@ func DecodeString(s string, buf []rune) (n int, ascii bool) {
 		}
 		return len(s), true
 	}
+	// Mixed input decodes rune by rune, but a run of ASCII bytes is copied
+	// directly: the range scan pays for a decode on every one of them.
 	ascii = true
-	for _, ch := range s {
-		if ch >= utf8.RuneSelf {
-			ascii = false
+	for i := 0; i < len(s); {
+		if s[i] < utf8.RuneSelf {
+			for ; i < len(s) && s[i] < utf8.RuneSelf; i++ {
+				buf[n] = rune(s[i])
+				n++
+			}
+			continue
 		}
+		ch, size := utf8.DecodeRuneInString(s[i:])
+		ascii = false
 		buf[n] = ch
 		n++
+		i += size
 	}
 	return n, ascii
 }
