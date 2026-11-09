@@ -106,14 +106,20 @@ var (
 	// Match-returning string searches can transfer their exact-size buffers to callers.
 	pooledMatchRuneBuffers = newPooledSliceBuffers[rune](1<<10, 4<<10, 16<<10, 64<<10, 256<<10)
 	pooledByteBuffers      = newPooledSliceBuffers[byte](4<<10, 16<<10, 64<<10, 256<<10, 1<<20)
+	pooledReplaceBuffers   = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 )
 
 func getPooledReplaceBuffer(neededBytes, maxSize int) (*bytes.Buffer, *[]byte) {
 	buf, pooled := pooledByteBuffers.get(neededBytes, maxSize)
-	return bytes.NewBuffer(buf[:0]), pooled
+	// Buffer wraps the pooled bytes but cannot adopt them, so reuse the wrapper
+	// too and the call allocates nothing.
+	wrapped := pooledReplaceBuffers.Get().(*bytes.Buffer)
+	*wrapped = *bytes.NewBuffer(buf[:0])
+	return wrapped, pooled
 }
 
 func putPooledReplaceBuffer(buf *bytes.Buffer, pooled *[]byte) {
 	*pooled = buf.Bytes()
 	pooledByteBuffers.put(pooled)
+	pooledReplaceBuffers.Put(buf)
 }
